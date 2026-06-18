@@ -125,7 +125,7 @@
   mark.pii.off{background:transparent !important;color:var(--ink-soft);text-decoration:line-through;
     opacity:.65;border-bottom:1px dashed #c4cad8}
   /* per-type colors */
-  mark.name{background:#e7f0ff;border-bottom-color:#8fb4ff}
+  mark.name,mark.org{background:#e7f0ff;border-bottom-color:#8fb4ff}
   mark.ssn,mark.account,mark.case{background:#ffe9e6;border-bottom-color:#ff9c8f}
   mark.email,mark.phone{background:#e7f7ee;border-bottom-color:#79d3a4}
   mark.address,mark.zip{background:#fff2da;border-bottom-color:#ffce7a}
@@ -377,12 +377,13 @@ const TYPES = {
   date:    {prefix:"DATE",     label:"Date",          color:"#b79cff", priority:86},
   account: {prefix:"ACCOUNT",  label:"Account/Routing",color:"#ff9c8f",priority:85},
   money:   {prefix:"AMOUNT",   label:"Dollar amount", color:"#7ed4e8", priority:80},
+  org:     {prefix:"ENTITY",   label:"Org/Entity",    color:"#8fb4ff", priority:75},
   address: {prefix:"ADDRESS",  label:"Address",       color:"#ffce7a", priority:70},
   name:    {prefix:"CLIENT",   label:"Name",          color:"#8fb4ff", priority:50},
   zip:     {prefix:"ZIP",      label:"ZIP",           color:"#ffce7a", priority:40},
 };
 /* Which categories the user can toggle on/off before detecting. */
-const TOGGLEABLE = ["name","ssn","email","phone","address","zip","date","account","case","money"];
+const TOGGLEABLE = ["name","org","ssn","email","phone","address","zip","date","account","case","money"];
 
 /* ---------------------------------------------------------------------------
    DETECTORS — each returns an array of {type,start,end,value} for a given text.
@@ -412,6 +413,8 @@ const REGEX_DETECTORS = [
                   valid:m=>{const d=(m.match(/\d/g)||[]).length; return d>=7&&d<=17;}},
   // ZIP: 5 digits or ZIP+4
   {type:"zip",    re:/\b\d{5}(?:-\d{4})?\b/g},
+  // org / entity: capitalized word(s) ending in a company/legal suffix → "Smith LLC", "Acme Corp"
+  {type:"org",    re:/\b[A-Z][A-Za-z0-9&.'\-]*(?:\s+(?:&|[A-Z][A-Za-z0-9&.'\-]*)){0,4}\s+(?:LLC|L\.L\.C\.|Inc\.?|Incorporated|Corp\.?|Corporation|LLP|L\.L\.P\.|PLLC|P\.?C\.?|L\.?P\.?|Co\.?|Company|Ltd\.?|Trust|Partners|Group|Associates|Holdings|Ventures|Capital|Foundation|Bancorp|Bank|Insurance)\b/g},
 ];
 
 /* Words that, on their own, should not anchor a "name" detection.
@@ -422,6 +425,7 @@ const NAME_STOP = new Set((
   "The A An And But Or For Of To In On At By With From As If He She They We You It This That These Those "+
   "See Cf Compare Accord Id Ibid Supra Infra See Also Cited Per Versus "+
   "Dear Sincerely Regards Best Re Subject Memo Memorandum Exhibit Attachment "+
+  "Client Clients Witness Party Parties Matter "+
   "Court Supreme District Circuit County State States United Federal Department Office Bank Company "+
   "Corporation Inc Incorporated LLC LLP Co Ltd Plaintiff Defendant Petitioner Respondent Appellant "+
   "Attorney Counsel Law Firm Honorable Judge Justice North South East West New City America American "+
@@ -442,13 +446,16 @@ function detectNames(text){
     return toks.length ? {s, e, n:toks.length} : null;
   };
 
+  // a "name word": Capitalized, optionally with internal hyphens/apostrophes (O'Brien, Nguyen-Lee)
+  const W = "[A-Z][a-z]+(?:[-'][A-Za-z]+)*";
+
   // 1) Title + name:  Mr. Hale / Dr. Robert Hale  (kept whole — the title is the signal)
-  const titleRe = /\b(?:Mr|Mrs|Ms|Miss|Dr|Prof|Atty|Hon|Judge|Justice|Officer|Det|Sgt|Capt|Lt|Col|Gen|Rev)\.?\s+[A-Z][a-z]+(?:\s+(?:[A-Z]\.?|[A-Z][a-z]+)){0,2}/g;
+  const titleRe = new RegExp("\\b(?:Mr|Mrs|Ms|Miss|Dr|Prof|Atty|Hon|Judge|Justice|Officer|Det|Sgt|Capt|Lt|Col|Gen|Rev)\\.?\\s+"+W+"(?:\\s+(?:[A-Z]\\.?|"+W+")){0,2}","g");
   for(let m; (m=titleRe.exec(text)); ) push(m.index, m.index+m[0].length);
 
   // 2) Case captions: capture BOTH party names around "v." / "vs.",
   //    trimming boilerplate so "See Hale v. Fleming" yields "Hale" and "Fleming".
-  const vRe = /\b([A-Z][A-Za-z.'\-]+(?:\s+[A-Z][A-Za-z.'\-]+){0,3})\s+(?:v\.?|vs\.?)\s+([A-Z][A-Za-z.'\-]+(?:\s+[A-Z][A-Za-z.'\-]+){0,3})/g;
+  const vRe = new RegExp("\\b("+W+"(?:\\s+"+W+"){0,3})\\s+(?:v\\.?|vs\\.?)\\s+("+W+"(?:\\s+"+W+"){0,3})","g");
   for(let m; (m=vRe.exec(text)); ){
     const L = trimStops(m[1], m.index); if(L) push(L.s, L.e);
     const R = trimStops(m[2], m.index + m[0].length - m[2].length); if(R) push(R.s, R.e);
@@ -456,12 +463,38 @@ function detectNames(text){
 
   // 3) General: runs of 2+ capitalized words (allowing middle initials),
   //    then trim boilerplate and require >=2 real tokens to keep noise down.
-  const genRe = /\b[A-Z][a-z]+(?:\s+(?:[A-Z]\.?|[A-Z][a-z]+)){1,3}\b/g;
+  const genRe = new RegExp("\\b"+W+"(?:\\s+(?:[A-Z]\\.?|"+W+")){1,3}\\b","g");
   for(let m; (m=genRe.exec(text)); ){
     const t = trimStops(m[0], m.index);
     if(t && t.n >= 2) push(t.s, t.e);
   }
   return spans;
+}
+
+/* Name-part linking: once a fuller name or entity is detected (e.g. "Catherine
+   Mills", "Smith LLC"), also catch BARE later occurrences of its significant
+   parts ("Catherine", "Mills", "Smith") so single-word references don't slip. */
+function linkNameParts(text, spans){
+  const SUFFIX = /^(LLC|Inc|Incorporated|Corp|Corporation|LLP|PLLC|PC|LP|Co|Company|Ltd|Trust|Partners|Group|Associates|Holdings|Ventures|Capital|Foundation|Bancorp|Bank|Insurance)\.?$/i;
+  const tokens = new Set();
+  for(const s of spans){
+    if(s.type!=="name" && s.type!=="org") continue;
+    for(const raw of s.value.split(/\s+/)){
+      const t = raw.replace(/^[^A-Za-z]+|[^A-Za-z]+$/g,"");
+      if(t.length>=3 && /^[A-Z]/.test(t) && !NAME_STOP.has(t.replace(/\.$/,"")) && !SUFFIX.test(t)) tokens.add(t);
+    }
+  }
+  const out = [];
+  for(const t of tokens){
+    const re = new RegExp("\\b"+t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b","g");
+    for(let m; (m=re.exec(text)); ){
+      const st=m.index, en=st+m[0].length;
+      if(spans.some(sp=>st<sp.end && en>sp.start)) continue;   // already covered by a fuller match
+      if(out.some(sp=>st<sp.end && en>sp.start)) continue;
+      out.push({type:"name", start:st, end:en, value:m[0]});
+    }
+  }
+  return out;
 }
 
 /* Run all enabled detectors, then resolve overlaps. */
@@ -477,6 +510,8 @@ function detect(text, enabled){
     }
   }
   if(enabled.name) spans = spans.concat(detectNames(text));
+  // catch bare single-word references to any detected person/entity name
+  if(enabled.name) spans = spans.concat(linkNameParts(text, spans));
   return resolveOverlaps(spans);
 }
 
