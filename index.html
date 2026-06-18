@@ -732,17 +732,17 @@ const EXAMPLE =
    plus one checkbox. It does NOT read currentText, items, activeMap, the
    textareas, or anything from the redaction tool. Redaction stays 100% offline.
    ===========================================================================
-   CONFIG — replace these three before going live:
-     EMAIL_ENDPOINT  : where the email is POSTed. Default is Web3Forms (a plain
-                       form-POST service that needs NO on-load script). Paste your
-                       Web3Forms access key below, OR swap the endpoint for your
-                       ConvertKit/Beehiiv form action or a Vercel function.
-     KIT_LINK        : direct link to the kit (shown for instant access on success).
-     CONTACT_EMAIL   : fallback address shown if the request fails.                 */
-const EMAIL_ENDPOINT = "https://api.web3forms.com/submit";
-const WEB3FORMS_KEY  = "YOUR_WEB3FORMS_ACCESS_KEY";   // <-- REPLACE (free key at web3forms.com)
-const KIT_LINK       = "https://helloparalegal.com/ai-confidentiality-kit"; // <-- REPLACE with the real kit URL
-const CONTACT_EMAIL  = "hello@helloparalegal.com";    // <-- REPLACE if different
+   CONFIG:
+     EMAIL_ENDPOINT  : FormSubmit endpoint that forwards captured emails to the
+                       firm's inbox. No account/API key; the random alias below is
+                       bound to the destination inbox and hides the real address.
+                       To change where leads go, mint a new alias at formsubmit.co.
+     KIT_LINK        : the kit page (shown for instant access on success). SET THIS
+                       to your real kit URL when the page is live.
+     CONTACT_EMAIL   : fallback address shown only if a submission errors.          */
+const EMAIL_ENDPOINT = "https://formsubmit.co/ajax/a7de5074bda306a14c6b56a4e38f4e32";
+const KIT_LINK       = "https://helloparalegal.com/ai-confidentiality-kit"; // <-- set to the live kit URL
+const CONTACT_EMAIL  = "hello@helloparalegal.com";    // shown only if the request fails
 
 function validEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
 
@@ -755,13 +755,14 @@ async function submitKit(ev){
   const btn = $("kitSubmit");
   btn.disabled = true; btn.textContent = "Sending…"; msg.className="kit-msg"; msg.textContent="";
 
-  // The ENTIRE payload — only the email + the one checkbox. Nothing else.
+  // The ENTIRE payload — only the submitted email + the one checkbox (plus form
+  // meta). It NEVER includes document text, the redacted output, or the key map.
   const payload = {
-    access_key: WEB3FORMS_KEY,
-    subject: "AI Confidentiality Kit request",
-    from_name: "Privilege Shield",
     email: email,
-    firm_wide_interest: $("kitFirm").checked ? "yes" : "no"
+    firm_wide_interest: $("kitFirm").checked ? "yes" : "no",
+    _subject: "New AI Confidentiality Kit request — Privilege Shield",
+    _template: "table",
+    _captcha: "false"
   };
 
   try{
