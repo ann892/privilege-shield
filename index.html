@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<!--
+  PRIVILEGE SHIELD  —  Hello Paralegal
+  ============================================================================
+  A 100% client-side PII redaction tool for lawyers.
+
+  TRUST PROPOSITION (the entire point of this file):
+    • THE REDACTION IS 100% CLIENT-SIDE. The redact/restore code makes NO network
+      calls — no fetch(), no XMLHttpRequest, no WebSocket, no <script src>, no CDN,
+      no web fonts, no analytics, no tracking pixels, and nothing loads from the
+      network on page load. (The only <link> is an inline data-URI favicon, which
+      makes no request.) Save this file, turn off your wifi, open it — redaction
+      works identically. Your document text and the placeholder map NEVER leave
+      this page.
+    • The placeholder -> real-value map lives only in this page's memory.
+      Reloading the page erases it. It is never transmitted or stored remotely.
+    • THE ONLY network request in this whole file is the OPTIONAL email form at the
+      bottom: it fires a single POST *only when you click "Send it to me"*, and it
+      sends ONLY your email address (+ one checkbox). It never touches your document
+      text or the redaction map. Search this file for `fetch(` — there is exactly
+      one, inside submitKit(), and you can read precisely what it sends.
+
+  HOW IT WORKS:
+    REDACT  — paste text, the tool DETECTS likely PII and highlights it. You
+              review (click to toggle items off, or select text to add ones it
+              missed). On confirm, each item becomes a consistent placeholder
+              (Robert Hale -> [CLIENT_1]) and you copy the safe text into any AI.
+    RESTORE — paste the AI's reply back; the tool swaps the placeholders back to
+              the real values, locally.
+
+  Detection is regex + heuristics (offline-friendly). It is intentionally
+  imperfect and OVER-flags: the human-review step is the safety net. Read the
+  code below — it is meant to be inspected.
+  ============================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privilege Shield — strip client identifiers before AI sees them</title>
+<!-- Inline (data-URI) favicon. This is NOT a network request — it stops the
+     browser from auto-fetching /favicon.ico, keeping the Network tab empty. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%231f6feb' d='M12 2l8 3v6c0 5-3.4 8.6-8 11-4.6-2.4-8-6-8-11V5z'/%3E%3C/svg%3E">
+<style>
+  /* System font stack only — NO web fonts (a web font would be a network call). */
+  :root{
+    --ink:#1a2233; --ink-soft:#475069; --line:#e2e6ef; --bg:#f6f7fb;
+    --panel:#ffffff; --accent:#1f6feb; --accent-d:#1551b5; --good:#0f8a5f;
+    --warn:#b54708; --shadow:0 1px 2px rgba(16,24,40,.06),0 8px 24px rgba(16,24,40,.06);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink); background:var(--bg); line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent)}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+
+  /* ---- header ---- */
+  header.site{padding:22px 0 6px}
+  .brandrow{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:700;letter-spacing:-.2px}
+  .brand .mark{
+    width:30px;height:30px;border-radius:8px;flex:0 0 auto;
+    background:linear-gradient(135deg,#1f6feb,#16407e);position:relative}
+  .brand .mark::after{content:"";position:absolute;inset:7px 8px;border:2px solid #fff;
+    border-radius:0 0 8px 8px;border-top:none;box-shadow:0 -2px 0 #fff inset}
+  .brand b{font-size:18px}
+  .byline{font-size:13px;color:var(--ink-soft)}
+  .byline a{font-weight:600;text-decoration:none}
+  #netbadge{font-size:12.5px;font-weight:600;border:1px solid var(--line);
+    background:#fff;border-radius:999px;padding:5px 11px;color:var(--ink-soft);white-space:nowrap}
+  #netbadge .dot{display:inline-block;width:8px;height:8px;border-radius:50%;
+    background:var(--good);margin-right:6px;vertical-align:middle}
+
+  /* ---- hero ---- */
+  .hero{padding:26px 0 8px}
+  .hero h1{font-size:38px;line-height:1.1;letter-spacing:-1px;margin:.1em 0 .35em}
+  .hero p.sub{font-size:18px;color:var(--ink-soft);max-width:760px;margin:0}
+  .trustchips{display:flex;gap:10px;flex-wrap:wrap;margin:20px 0 4px}
+  .chip{display:flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--line);
+    border-radius:10px;padding:8px 12px;font-size:13.5px;font-weight:600;box-shadow:var(--shadow)}
+  .chip svg{width:15px;height:15px;flex:0 0 auto}
+
+  /* ---- panels ---- */
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:26px 0}
+  @media(max-width:880px){.grid{grid-template-columns:1fr}.hero h1{font-size:30px}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+    box-shadow:var(--shadow);padding:18px;display:flex;flex-direction:column;min-width:0}
+  .panel h2{font-size:16px;margin:0 0 2px;display:flex;align-items:center;gap:8px}
+  .panel .step{font-size:12.5px;color:var(--ink-soft);margin:0 0 14px}
+  .step-num{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--accent);
+    color:#fff;font-size:12px;font-weight:700;align-items:center;justify-content:center}
+
+  label.fld{font-size:12.5px;font-weight:600;color:var(--ink-soft);display:block;margin:0 0 6px}
+  textarea{
+    width:100%;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:14px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.55;
+    resize:vertical;min-height:150px;color:var(--ink);background:#fdfdff}
+  textarea:focus{outline:2px solid #bcd3ff;border-color:var(--accent)}
+
+  .btn{appearance:none;border:1px solid var(--accent);background:var(--accent);color:#fff;
+    font-size:14px;font-weight:600;padding:10px 16px;border-radius:10px;cursor:pointer}
+  .btn:hover{background:var(--accent-d);border-color:var(--accent-d)}
+  .btn.ghost{background:#fff;color:var(--ink);border-color:var(--line)}
+  .btn.ghost:hover{background:#f3f5fb}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btnrow{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-top:12px}
+  .spacer{flex:1}
+  .small{font-size:12px;color:var(--ink-soft)}
+
+  /* options */
+  .opts{display:flex;flex-wrap:wrap;gap:8px 14px;margin:12px 0 2px}
+  .opts label{font-size:12.5px;display:flex;align-items:center;gap:6px;color:var(--ink-soft);cursor:pointer}
+
+  /* review area */
+  .review{margin-top:14px;display:none}
+  .preview{border:1px solid var(--line);border-radius:10px;padding:12px;background:#fdfdff;
+    font-size:14px;line-height:1.9;white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .hint{font-size:12px;color:var(--ink-soft);margin:8px 0 0}
+  mark.pii{padding:1px 2px;border-radius:4px;cursor:pointer;border-bottom:2px solid transparent}
+  mark.pii.off{background:transparent !important;color:var(--ink-soft);text-decoration:line-through;
+    opacity:.65;border-bottom:1px dashed #c4cad8}
+  /* per-type colors */
+  mark.name{background:#e7f0ff;border-bottom-color:#8fb4ff}
+  mark.ssn,mark.account,mark.case{background:#ffe9e6;border-bottom-color:#ff9c8f}
+  mark.email,mark.phone{background:#e7f7ee;border-bottom-color:#79d3a4}
+  mark.address,mark.zip{background:#fff2da;border-bottom-color:#ffce7a}
+  mark.date{background:#efe7ff;border-bottom-color:#b79cff}
+  mark.money{background:#e6f6fb;border-bottom-color:#7ed4e8}
+  mark.other{background:#eceef3;border-bottom-color:#aeb6c7}
+
+  .additem{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+  select{font-size:13px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fff}
+
+  .items{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+  .items h3{font-size:12.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft);margin:0 0 8px}
+  .itrow{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:8px}
+  .itrow:hover{background:#f6f8fd}
+  .itrow input{width:16px;height:16px}
+  .swatch{width:10px;height:10px;border-radius:3px;flex:0 0 auto}
+  .ittype{font-size:11px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;min-width:64px}
+  .itval{font-family:ui-monospace,Menlo,monospace;font-size:13px;flex:1;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .itph{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--accent);font-weight:600}
+  .itcount{font-size:11px;color:var(--ink-soft)}
+  .empty{font-size:13px;color:var(--ink-soft);padding:8px}
+
+  .outwrap{margin-top:14px;display:none}
+  .notice{font-size:12.5px;border-radius:9px;padding:9px 11px;margin-top:10px}
+  .notice.warn{background:#fff6ed;border:1px solid #f6d9b5;color:var(--warn)}
+  .notice.ok{background:#eafaf1;border:1px solid #bfe9d0;color:var(--good)}
+
+  /* CTA */
+  .cta{background:linear-gradient(135deg,#16263f,#1f3a63);color:#fff;border-radius:18px;
+    padding:30px;margin:30px 0;display:flex;align-items:center;justify-content:space-between;gap:22px;flex-wrap:wrap}
+  .cta h3{margin:0 0 6px;font-size:21px;letter-spacing:-.3px}
+  .cta p{margin:0;color:#cdd8ec;max-width:620px}
+  .cta a.book{background:#fff;color:#16263f;font-weight:700;text-decoration:none;
+    padding:13px 20px;border-radius:11px;white-space:nowrap;display:inline-block}
+  .cta a.book:hover{background:#eef2fb}
+
+  footer{border-top:1px solid var(--line);margin-top:18px;padding:22px 0 50px;color:var(--ink-soft);font-size:13px}
+  footer .disc{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+  footer b{color:var(--ink)}
+
+  /* ===== OPTIONAL email capture (clearly separate from the redaction tool) ===== */
+  .kit{margin:26px 0 0}
+  .kitcard{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
+    padding:22px 24px;display:grid;grid-template-columns:1.05fr 1fr;gap:26px;align-items:center}
+  @media(max-width:760px){.kitcard{grid-template-columns:1fr;gap:16px}}
+  .kit-tag{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.4px;
+    text-transform:uppercase;color:#1f6feb;background:#eaf1ff;border-radius:999px;padding:4px 10px;margin-bottom:10px}
+  .kitcard h3{margin:0 0 7px;font-size:19px;letter-spacing:-.3px;line-height:1.2}
+  .kitcard .kit-body{margin:0;color:var(--ink-soft);font-size:14px}
+  .kit-form{display:block}
+  .kit-row{display:flex;gap:9px;flex-wrap:wrap}
+  .kit-row input[type=email]{flex:1;min-width:180px;border:1px solid var(--line);border-radius:10px;
+    padding:11px 13px;font-size:14px;color:var(--ink);background:#fdfdff}
+  .kit-row input[type=email]:focus{outline:2px solid #bcd3ff;border-color:var(--accent)}
+  .kit-check{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-soft);margin:10px 0 0;cursor:pointer}
+  .kit-micro{font-size:11.5px;color:var(--ink-soft);margin:8px 0 0;line-height:1.5}
+  .kit-msg{font-size:12.5px;border-radius:9px;margin-top:10px}
+  .kit-msg:empty{margin:0}
+  .kit-msg.err{background:#fff6ed;border:1px solid #f6d9b5;color:#b54708;padding:9px 11px}
+  .kit-success{background:#eafaf1;border:1px solid #bfe9d0;border-radius:11px;padding:14px 16px}
+  .kit-success strong{display:block;color:#0f8a5f;font-size:14.5px;margin-bottom:3px}
+  .kit-success p{margin:0;font-size:13px;color:var(--ink-soft)}
+  .kit-success a{color:#0f8a5f;font-weight:700}
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap brandrow">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"></span>
+      <b>Privilege&nbsp;Shield</b>
+      <span class="byline">by <a href="https://helloparalegal.com">Hello&nbsp;Paralegal</a></span>
+    </div>
+    <!-- Live network status. The page works the same whether on or off. -->
+    <span id="netbadge"><span class="dot"></span><span id="netlabel">Runs locally</span></span>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <h1>Your client never enters the room.</h1>
+    <p class="sub">Strip every identifier before your text touches Claude, ChatGPT, or any
+      AI — and restore the real names locally after. Your documents are never uploaded — not even to us.</p>
+    <div class="trustchips">
+      <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="#0f8a5f" stroke-width="2"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>Runs entirely in your browser</span>
+      <a class="chip" href="https://github.com/ann892/privilege-shield" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="#1f6feb" stroke-width="2"><path d="M8 17l-5-5 5-5"/><path d="M16 7l5 5-5 5"/></svg>Open source — read the code</a>
+      <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="#b54708" stroke-width="2"><path d="M3 12a9 9 0 0118 0"/><path d="M1 12l2 2 2-2"/><path d="M2 12v0"/><line x1="3" y1="3" x2="21" y2="21"/></svg>Works offline — wifi off, same result</span>
+      <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="#475069" stroke-width="2"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>Your documents are never uploaded</span>
+    </div>
+  </div>
+</section>
+
+<div class="wrap">
+  <div class="grid">
+
+    <!-- ================= REDACT PANEL ================= -->
+    <section class="panel" id="redactPanel">
+      <h2><span class="step-num">1</span> Redact</h2>
+      <p class="step">Paste raw text. Review what's detected. Confirm to get AI-safe text.</p>
+
+      <label class="fld" for="rawInput">Your text (with client details)</label>
+      <textarea id="rawInput" placeholder="Paste the text you want to send to an AI tool…"></textarea>
+
+      <div class="opts" id="typeOpts">
+        <strong class="small" style="width:100%;color:var(--ink)">Detect:</strong>
+        <!-- checkboxes injected by JS -->
+      </div>
+
+      <div class="btnrow">
+        <button class="btn" id="detectBtn">Detect PII</button>
+        <button class="btn ghost" id="exampleBtn" type="button">Try an example</button>
+        <span class="spacer"></span>
+        <button class="btn ghost" id="clearAllBtn" type="button">Clear all</button>
+      </div>
+
+      <!-- review (appears after Detect) -->
+      <div class="review" id="reviewArea">
+        <label class="fld" style="margin-top:6px">Review — click a highlight to keep it in cleartext, or select missed text to add it</label>
+        <div class="preview" id="preview"></div>
+        <p class="hint">Tip: select any text above and choose a type to flag something the tool missed.</p>
+
+        <div class="additem">
+          <select id="addType" title="Type for selected text"></select>
+          <button class="btn ghost" id="addSelBtn" type="button">Mark selection as PII</button>
+        </div>
+
+        <div class="items" id="itemsBox">
+          <h3>Detected items <span id="itemsCount" class="small"></span></h3>
+          <div id="itemsList"></div>
+        </div>
+
+        <div class="btnrow">
+          <button class="btn" id="redactBtn">Confirm &amp; redact →</button>
+          <span class="small">Each confirmed item → a consistent placeholder.</span>
+        </div>
+      </div>
+
+      <!-- output -->
+      <div class="outwrap" id="outWrap">
+        <label class="fld" style="margin-top:4px">AI-safe text — copy this into Claude / ChatGPT</label>
+        <textarea id="redactedOut" readonly></textarea>
+        <div class="btnrow">
+          <button class="btn" id="copyOutBtn" type="button">Copy safe text</button>
+          <button class="btn ghost" id="downloadKeyBtn" type="button">Download key (local)</button>
+          <span class="small">The key (placeholder → real value) stays in this browser only.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= RESTORE PANEL ================= -->
+    <section class="panel" id="restorePanel">
+      <h2><span class="step-num">2</span> Restore</h2>
+      <p class="step">Paste the AI's reply. Get it back with the real names — substituted locally.</p>
+
+      <label class="fld" for="aiInput">The AI's response (with placeholders)</label>
+      <textarea id="aiInput" placeholder="Paste the AI's reply here. Placeholders like [CLIENT_1] will be swapped back…"></textarea>
+
+      <div class="btnrow">
+        <button class="btn" id="restoreBtn">Restore real values</button>
+        <span class="spacer"></span>
+        <span class="small" id="mapState">No active key yet</span>
+      </div>
+
+      <div id="restoreNotice"></div>
+
+      <div class="outwrap" id="restoreOutWrap">
+        <label class="fld" style="margin-top:4px">Restored text</label>
+        <textarea id="restoredOut" readonly></textarea>
+        <div class="btnrow">
+          <button class="btn" id="copyRestoredBtn" type="button">Copy restored text</button>
+        </div>
+      </div>
+
+      <div class="items" style="margin-top:16px">
+        <h3>Active key (this session only)</h3>
+        <div id="keyView" class="empty">Redact something first — the key appears here and never leaves your browser.</div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<!-- ================= OPTIONAL EMAIL CAPTURE ================= -->
+<!-- Separate from the redaction tool. The form posts ONLY the email address (and
+     one checkbox), and ONLY when the user clicks submit. See submitKit() below. -->
+<div class="wrap kit">
+  <div class="kitcard">
+    <div>
+      <span class="kit-tag">Free · optional</span>
+      <h3>Keep your clients out of the room everywhere — not just here.</h3>
+      <p class="kit-body">Get the free AI Confidentiality Kit: the exact prompt and checklist I use so
+        AI never touches a client's identity.</p>
+    </div>
+    <form class="kit-form" id="kitForm" novalidate>
+      <div class="kit-row">
+        <input type="email" id="kitEmail" name="email" placeholder="you@yourfirm.com" autocomplete="email" required>
+        <button class="btn" type="submit" id="kitSubmit">Send it to me</button>
+      </div>
+      <label class="kit-check"><input type="checkbox" id="kitFirm"> I'd also like to hear about the firm-wide version</label>
+      <p class="kit-micro">Your redaction stays 100% in your browser. This only emails the kit to your
+        inbox. No spam, unsubscribe anytime.</p>
+      <div class="kit-msg" id="kitMsg" role="status" aria-live="polite"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ================= CONVERSION CTA ================= -->
+<div class="wrap">
+  <div class="cta">
+    <div>
+      <h3>This protects one document at a time, by hand.</h3>
+      <p>Hello Paralegal builds this into your entire practice — every intake, every matter,
+         automatically — so client data never touches AI unprotected.</p>
+    </div>
+    <!-- Replace href with your real booking link (e.g. a Calendly URL). -->
+    <a class="book" id="bookCta" href="https://helloparalegal.com/book">Book a 30-min call →</a>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="disc">
+      <b>Review every redaction before use.</b> You remain responsible for protecting client
+      confidentiality. This is a tool, not legal advice. Automated detection is imperfect by
+      design — it over-flags so you can remove, and it may miss things, so read your text.
+    </div>
+    <div>Built by <b>Hello Paralegal</b> — <a href="https://helloparalegal.com">helloparalegal.com</a>
+      &nbsp;·&nbsp; Open source: <a href="https://github.com/ann892/privilege-shield" target="_blank" rel="noopener">read the code</a>,
+      or run it offline. It works the same. Only the optional email form sends anything — and only your email.</div>
+  </div>
+</footer>
+
+<script>
+/* ===========================================================================
+   PRIVILEGE SHIELD — engine (vanilla JS, no dependencies, no network)
+   Read this. Nothing here contacts a server.
+   =========================================================================== */
+"use strict";
+
+/* --- type metadata: placeholder prefix, label, swatch color, overlap priority.
+   Higher priority wins when two detections overlap. ------------------------ */
+const TYPES = {
+  other:   {prefix:"REDACTED", label:"Manual",        color:"#aeb6c7", priority:130},
+  email:   {prefix:"EMAIL",    label:"Email",         color:"#79d3a4", priority:100},
+  ssn:     {prefix:"SSN",      label:"SSN",           color:"#ff9c8f", priority:95},
+  phone:   {prefix:"PHONE",    label:"Phone",         color:"#79d3a4", priority:90},
+  case:    {prefix:"CASE",     label:"Case/Docket",   color:"#ff9c8f", priority:88},
+  date:    {prefix:"DATE",     label:"Date",          color:"#b79cff", priority:86},
+  account: {prefix:"ACCOUNT",  label:"Account/Routing",color:"#ff9c8f",priority:85},
+  money:   {prefix:"AMOUNT",   label:"Dollar amount", color:"#7ed4e8", priority:80},
+  address: {prefix:"ADDRESS",  label:"Address",       color:"#ffce7a", priority:70},
+  name:    {prefix:"CLIENT",   label:"Name",          color:"#8fb4ff", priority:50},
+  zip:     {prefix:"ZIP",      label:"ZIP",           color:"#ffce7a", priority:40},
+};
+/* Which categories the user can toggle on/off before detecting. */
+const TOGGLEABLE = ["name","ssn","email","phone","address","zip","date","account","case","money"];
+
+/* ---------------------------------------------------------------------------
+   DETECTORS — each returns an array of {type,start,end,value} for a given text.
+   They deliberately over-detect; the human review removes false positives.
+   --------------------------------------------------------------------------- */
+
+/* Structured, regex-based detectors. */
+const REGEX_DETECTORS = [
+  {type:"email",  re:/\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/g},
+  {type:"ssn",    re:/\b\d{3}[-\s]\d{2}[-\s]\d{4}\b/g},
+  // phone: optional +1, area code with/without parens, common separators
+  {type:"phone",  re:/(?:\+?1[\s.\-]?)?(?:\(\d{3}\)|\d{3})[\s.\-]?\d{3}[\s.\-]?\d{4}\b/g,
+                  valid:m=>((m.match(/\d/g)||[]).length===10||(m.match(/\d/g)||[]).length===11)},
+  // case / docket numbers like 3:25-cv-01199, plus "Case No. ..." captions
+  {type:"case",   re:/\b\d{1,2}:\d{2}-[A-Za-z]{2,4}-\d{3,6}\b/g},
+  {type:"case",   re:/\b(?:Case|Docket|Civil Action)\s*(?:No\.?|Number)?\s*[:#]?\s*[\dA-Za-z][\dA-Za-z\-:]{3,}\b/g},
+  // money: $ amounts (with or without commas/cents)
+  {type:"money",  re:/\$\s?\d[\d,]*(?:\.\d{1,2})?\b/g},
+  // dates: numeric m/d/y, ISO y-m-d, and "Month D, YYYY"
+  {type:"date",   re:/\b(?:0?[1-9]|1[0-2])[\/\-](?:0?[1-9]|[12]\d|3[01])[\/\-](?:\d{4}|\d{2})\b/g},
+  {type:"date",   re:/\b\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\b/g},
+  {type:"date",   re:/\b(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}\b/gi},
+  // street address: number + words + street-type suffix (+ optional unit)
+  {type:"address",re:/\b\d{1,6}\s+(?:[A-Z][A-Za-z.'\-]+\s+){1,4}(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Way|Place|Pl|Terrace|Ter|Circle|Cir|Highway|Hwy|Parkway|Pkwy|Square|Sq|Trail|Trl)\b\.?(?:,?\s*(?:Apt|Suite|Ste|Unit|#)\s*\.?\s*[\w\-]+)?/g},
+  // account / routing: a run of 7–17 digits, possibly grouped with - or spaces
+  {type:"account",re:/\b\d(?:[\d\-\s]{5,})\d\b/g,
+                  valid:m=>{const d=(m.match(/\d/g)||[]).length; return d>=7&&d<=17;}},
+  // ZIP: 5 digits or ZIP+4
+  {type:"zip",    re:/\b\d{5}(?:-\d{4})?\b/g},
+];
+
+/* Words that, on their own, should not anchor a "name" detection.
+   Used to trim/skip capitalized sequences that are really boilerplate. */
+const NAME_STOP = new Set((
+  "January February March April May June July August September October November December "+
+  "Monday Tuesday Wednesday Thursday Friday Saturday Sunday "+
+  "The A An And But Or For Of To In On At By With From As If He She They We You It This That These Those "+
+  "See Cf Compare Accord Id Ibid Supra Infra See Also Cited Per Versus "+
+  "Dear Sincerely Regards Best Re Subject Memo Memorandum Exhibit Attachment "+
+  "Court Supreme District Circuit County State States United Federal Department Office Bank Company "+
+  "Corporation Inc Incorporated LLC LLP Co Ltd Plaintiff Defendant Petitioner Respondent Appellant "+
+  "Attorney Counsel Law Firm Honorable Judge Justice North South East West New City America American "+
+  "Street Avenue Road Boulevard Drive Lane Mr Mrs Ms Miss Dr Prof"
+).split(/\s+/));
+
+/* Heuristic name detector: titles, "X v. Y" parties, and 2+ capitalized words. */
+function detectNames(text){
+  const spans = [];
+  const push = (start,end)=>{ if(end>start) spans.push({type:"name",start,end,value:text.slice(start,end)}); };
+
+  // Trim leading/trailing boilerplate words ("See", "The", months…) off a
+  // matched capitalized run. Returns adjusted {s,e,n} or null if nothing's left.
+  const trimStops = (matchStr, absStart)=>{
+    let s = absStart, e = absStart + matchStr.length, toks = matchStr.split(/\s+/);
+    while(toks.length && NAME_STOP.has(toks[0].replace(/\.$/,""))){ s += toks[0].length+1; toks.shift(); }
+    while(toks.length && NAME_STOP.has(toks[toks.length-1].replace(/\.$/,""))){ e -= toks[toks.length-1].length+1; toks.pop(); }
+    return toks.length ? {s, e, n:toks.length} : null;
+  };
+
+  // 1) Title + name:  Mr. Hale / Dr. Robert Hale  (kept whole — the title is the signal)
+  const titleRe = /\b(?:Mr|Mrs|Ms|Miss|Dr|Prof|Atty|Hon|Judge|Justice|Officer|Det|Sgt|Capt|Lt|Col|Gen|Rev)\.?\s+[A-Z][a-z]+(?:\s+(?:[A-Z]\.?|[A-Z][a-z]+)){0,2}/g;
+  for(let m; (m=titleRe.exec(text)); ) push(m.index, m.index+m[0].length);
+
+  // 2) Case captions: capture BOTH party names around "v." / "vs.",
+  //    trimming boilerplate so "See Hale v. Fleming" yields "Hale" and "Fleming".
+  const vRe = /\b([A-Z][A-Za-z.'\-]+(?:\s+[A-Z][A-Za-z.'\-]+){0,3})\s+(?:v\.?|vs\.?)\s+([A-Z][A-Za-z.'\-]+(?:\s+[A-Z][A-Za-z.'\-]+){0,3})/g;
+  for(let m; (m=vRe.exec(text)); ){
+    const L = trimStops(m[1], m.index); if(L) push(L.s, L.e);
+    const R = trimStops(m[2], m.index + m[0].length - m[2].length); if(R) push(R.s, R.e);
+  }
+
+  // 3) General: runs of 2+ capitalized words (allowing middle initials),
+  //    then trim boilerplate and require >=2 real tokens to keep noise down.
+  const genRe = /\b[A-Z][a-z]+(?:\s+(?:[A-Z]\.?|[A-Z][a-z]+)){1,3}\b/g;
+  for(let m; (m=genRe.exec(text)); ){
+    const t = trimStops(m[0], m.index);
+    if(t && t.n >= 2) push(t.s, t.e);
+  }
+  return spans;
+}
+
+/* Run all enabled detectors, then resolve overlaps. */
+function detect(text, enabled){
+  let spans = [];
+  for(const d of REGEX_DETECTORS){
+    if(!enabled[d.type]) continue;
+    d.re.lastIndex = 0;
+    for(let m; (m=d.re.exec(text)); ){
+      const v = m[0];
+      if(d.valid && !d.valid(v)) continue;
+      spans.push({type:d.type, start:m.index, end:m.index+v.length, value:v});
+    }
+  }
+  if(enabled.name) spans = spans.concat(detectNames(text));
+  return resolveOverlaps(spans);
+}
+
+/* When two spans overlap, keep the higher-priority (then longer) one. */
+function resolveOverlaps(spans){
+  spans.sort((a,b)=>
+    (TYPES[b.type].priority - TYPES[a.type].priority) ||
+    ((b.end-b.start) - (a.end-a.start)) || (a.start - b.start));
+  const kept = [];
+  for(const s of spans){
+    if(kept.some(k => s.start < k.end && s.end > k.start)) continue;
+    kept.push(s);
+  }
+  kept.sort((a,b)=>a.start-b.start);
+  return kept;
+}
+
+/* ---------------------------------------------------------------------------
+   STATE
+   --------------------------------------------------------------------------- */
+let currentText = "";       // the exact text detection ran on (offsets reference this)
+let items = [];             // grouped: {id,type,value,key,enabled,placeholder,occ:[{start,end}]}
+let itemSeq = 0;
+let activeMap = null;       // {placeholder: realValue} — lives ONLY in memory
+
+/* Group raw spans into items keyed by (type + exact value) so the SAME value
+   always becomes the SAME placeholder. Preserves any existing enabled/disabled
+   choices when re-grouping after a manual add. */
+function regroup(spans, prev){
+  const prevEnabled = {};
+  if(prev) prev.forEach(it => prevEnabled[it.key] = it.enabled);
+  const byKey = new Map();
+  for(const s of spans){
+    const key = s.type + " " + s.value.trim();
+    if(!byKey.has(key)){
+      byKey.set(key, {id:"it"+(itemSeq++), type:s.type, value:s.value.trim(), key,
+                      enabled: key in prevEnabled ? prevEnabled[key] : true, placeholder:null, occ:[]});
+    }
+    byKey.get(key).occ.push({start:s.start, end:s.end});
+  }
+  const out = [...byKey.values()];
+  out.sort((a,b)=> Math.min(...a.occ.map(o=>o.start)) - Math.min(...b.occ.map(o=>o.start)));
+  return out;
+}
+
+/* Assign consistent placeholders to enabled items, in order of appearance. */
+function assignPlaceholders(){
+  const counters = {};
+  for(const it of items){
+    if(!it.enabled){ it.placeholder = null; continue; }
+    counters[it.type] = (counters[it.type]||0) + 1;
+    it.placeholder = "["+TYPES[it.type].prefix+"_"+counters[it.type]+"]";
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   RENDERING
+   --------------------------------------------------------------------------- */
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+function itemForSpan(start,end){
+  return items.find(it => it.occ.some(o => o.start===start && o.end===end));
+}
+
+function renderPreview(){
+  // Build a flat, ordered list of all occurrences with their item.
+  const occ = [];
+  for(const it of items) for(const o of it.occ) occ.push({start:o.start, end:o.end, it});
+  occ.sort((a,b)=>a.start-b.start);
+
+  let html = "", cur = 0;
+  for(const o of occ){
+    if(o.start < cur) continue;                       // safety against overlap
+    html += esc(currentText.slice(cur, o.start));
+    const cls = "pii " + o.it.type + (o.it.enabled ? "" : " off");
+    html += '<mark class="'+cls+'" data-item="'+o.it.id+'" title="'+
+            esc(TYPES[o.it.type].label)+(o.it.enabled?" — click to keep in cleartext":" — click to redact")+'">'+
+            esc(currentText.slice(o.start, o.end))+'</mark>';
+    cur = o.end;
+  }
+  html += esc(currentText.slice(cur));
+  $("preview").innerHTML = html;
+}
+
+function renderItems(){
+  const box = $("itemsList");
+  if(!items.length){ box.innerHTML = '<div class="empty">No PII detected. Review the text yourself before trusting it.</div>'; }
+  else {
+    box.innerHTML = items.map(it=>{
+      const occ = it.occ.length>1 ? ' ×'+it.occ.length : '';
+      return '<label class="itrow">'+
+        '<input type="checkbox" data-item="'+it.id+'" '+(it.enabled?"checked":"")+'>'+
+        '<span class="swatch" style="background:'+TYPES[it.type].color+'"></span>'+
+        '<span class="ittype">'+esc(TYPES[it.type].label)+'</span>'+
+        '<span class="itval" title="'+esc(it.value)+'">'+esc(it.value)+'</span>'+
+        '<span class="itcount">'+occ+'</span>'+
+        '<span class="itph">'+(it.enabled&&it.placeholder?esc(it.placeholder):'—')+'</span>'+
+      '</label>';
+    }).join("");
+  }
+  const n = items.filter(i=>i.enabled).length;
+  $("itemsCount").textContent = "("+n+" will be redacted)";
+}
+
+function rerender(){ assignPlaceholders(); renderPreview(); renderItems(); }
+
+/* ---------------------------------------------------------------------------
+   ACTIONS
+   --------------------------------------------------------------------------- */
+function getEnabledTypes(){
+  const enabled = {};
+  TOGGLEABLE.forEach(t=>{
+    const cb = document.querySelector('input[data-opt="'+t+'"]');
+    enabled[t] = cb ? cb.checked : true;
+  });
+  return enabled;
+}
+
+function runDetect(){
+  currentText = $("rawInput").value;
+  if(!currentText.trim()){ alert("Paste some text first."); return; }
+  items = regroup(detect(currentText, getEnabledTypes()), null);
+  rerender();
+  $("reviewArea").style.display = "block";
+  $("outWrap").style.display = "none";
+}
+
+/* Map a (node, offset) inside the preview to an index in currentText. */
+function caretOffset(root, node, offset){
+  if(node === root){ // selection at element boundary: sum children up to offset
+    let total=0; for(let i=0;i<offset;i++) total += (root.childNodes[i].textContent||"").length; return total;
+  }
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let total=0, n;
+  while((n = walker.nextNode())){ if(n===node) return total + offset; total += n.nodeValue.length; }
+  return total;
+}
+
+function addSelection(){
+  const sel = window.getSelection();
+  if(!sel || sel.isCollapsed || !sel.rangeCount){ alert("Select some text in the preview first."); return; }
+  const root = $("preview"), r = sel.getRangeAt(0);
+  if(!root.contains(r.startContainer) || !root.contains(r.endContainer)){ alert("Select inside the highlighted text."); return; }
+  let a = caretOffset(root, r.startContainer, r.startOffset);
+  let b = caretOffset(root, r.endContainer, r.endOffset);
+  if(b < a){ [a,b]=[b,a]; }
+  if(b <= a){ return; }
+  // refuse overlaps with existing occurrences (keeps the model clean)
+  for(const it of items) for(const o of it.occ){ if(a < o.end && b > o.start){ alert("That overlaps an item already detected."); return; } }
+  const type = $("addType").value;
+  const spans = [];
+  for(const it of items) for(const o of it.occ) spans.push({type:it.type, start:o.start, end:o.end, value:currentText.slice(o.start,o.end)});
+  spans.push({type, start:a, end:b, value:currentText.slice(a,b)});
+  items = regroup(spans, items);
+  rerender();
+  sel.removeAllRanges();
+}
+
+function toggleItem(id){
+  const it = items.find(i=>i.id===id);
+  if(it){ it.enabled = !it.enabled; rerender(); }
+}
+
+function runRedact(){
+  assignPlaceholders();
+  const enabledItems = items.filter(i=>i.enabled);
+  // build the list of occurrences with their placeholder, left→right
+  const occ = [];
+  for(const it of enabledItems) for(const o of it.occ) occ.push({start:o.start, end:o.end, ph:it.placeholder});
+  occ.sort((a,b)=>a.start-b.start);
+
+  let out = "", cur = 0;
+  for(const o of occ){ if(o.start<cur) continue; out += currentText.slice(cur,o.start) + o.ph; cur = o.end; }
+  out += currentText.slice(cur);
+
+  // the map lives ONLY here, in memory
+  activeMap = {};
+  for(const it of enabledItems) activeMap[it.placeholder] = it.value;
+
+  $("redactedOut").value = out;
+  $("outWrap").style.display = "block";
+  updateKeyView();
+}
+
+function updateKeyView(){
+  const entries = activeMap ? Object.entries(activeMap) : [];
+  $("mapState").textContent = entries.length ? entries.length+" placeholders active" : "No active key yet";
+  const kv = $("keyView");
+  if(!entries.length){ kv.className="empty"; kv.textContent="Redact something first — the key appears here and never leaves your browser."; return; }
+  kv.className="";
+  kv.innerHTML = entries.map(([ph,val])=>
+    '<div class="itrow"><span class="itph">'+esc(ph)+'</span>'+
+    '<span class="small">→</span><span class="itval" title="'+esc(val)+'">'+esc(val)+'</span></div>'
+  ).join("");
+}
+
+function runRestore(){
+  if(!activeMap || !Object.keys(activeMap).length){
+    $("restoreNotice").innerHTML = '<div class="notice warn">No active key in this session. Run a redaction first (the key is kept only in memory and is erased on reload).</div>';
+    return;
+  }
+  let text = $("aiInput").value;
+  if(!text.trim()){ alert("Paste the AI's response first."); return; }
+  // replace longest placeholders first so [CLIENT_12] beats [CLIENT_1]
+  const phs = Object.keys(activeMap).sort((a,b)=>b.length-a.length);
+  for(const ph of phs) text = text.split(ph).join(activeMap[ph]);
+
+  $("restoredOut").value = text;
+  $("restoreOutWrap").style.display = "block";
+
+  // warn about any leftover placeholders the AI may have invented/changed
+  const leftover = [...new Set((text.match(/\[[A-Z]+_\d+\]/g)||[]))];
+  $("restoreNotice").innerHTML = leftover.length
+    ? '<div class="notice warn">'+leftover.length+' placeholder(s) had no match in the key: '+esc(leftover.join(", "))+'. Check the AI didn\'t alter them.</div>'
+    : '<div class="notice ok">All placeholders restored.</div>';
+}
+
+/* Download the key as a local file (uses an in-memory Blob — no network). */
+function downloadKey(){
+  if(!activeMap){ return; }
+  const blob = new Blob([JSON.stringify(activeMap, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "privilege-shield-key.json";
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function copyFrom(id){
+  const el = $(id);
+  try{ await navigator.clipboard.writeText(el.value); }
+  catch(e){ el.select(); document.execCommand("copy"); }   // local fallback, no network
+}
+
+function clearAll(){
+  $("rawInput").value=""; $("aiInput").value="";
+  $("redactedOut").value=""; $("restoredOut").value="";
+  currentText=""; items=[]; activeMap=null;
+  $("reviewArea").style.display="none"; $("outWrap").style.display="none";
+  $("restoreOutWrap").style.display="none"; $("restoreNotice").innerHTML="";
+  updateKeyView();
+}
+
+const EXAMPLE =
+"Robert Hale wired $80,000 to his brother Daniel Hale on March 3, 2025, from account 4471-2231.\n"+
+"His SSN is 412-55-9087 and he can be reached at rhale@example.com or (415) 555-0132.\n"+
+"He lives at 220 Pine Street, San Francisco, CA 94104. See Hale v. Fleming, Case No. 3:25-cv-01199.";
+
+/* ===========================================================================
+   OPTIONAL EMAIL CAPTURE  — the ONLY network code in this file.
+   It runs ONLY when the user submits the form, and sends ONLY the email address
+   plus one checkbox. It does NOT read currentText, items, activeMap, the
+   textareas, or anything from the redaction tool. Redaction stays 100% offline.
+   ===========================================================================
+   CONFIG — replace these three before going live:
+     EMAIL_ENDPOINT  : where the email is POSTed. Default is Web3Forms (a plain
+                       form-POST service that needs NO on-load script). Paste your
+                       Web3Forms access key below, OR swap the endpoint for your
+                       ConvertKit/Beehiiv form action or a Vercel function.
+     KIT_LINK        : direct link to the kit (shown for instant access on success).
+     CONTACT_EMAIL   : fallback address shown if the request fails.                 */
+const EMAIL_ENDPOINT = "https://api.web3forms.com/submit";
+const WEB3FORMS_KEY  = "YOUR_WEB3FORMS_ACCESS_KEY";   // <-- REPLACE (free key at web3forms.com)
+const KIT_LINK       = "https://helloparalegal.com/ai-confidentiality-kit"; // <-- REPLACE with the real kit URL
+const CONTACT_EMAIL  = "hello@helloparalegal.com";    // <-- REPLACE if different
+
+function validEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
+
+async function submitKit(ev){
+  ev.preventDefault();
+  const email = $("kitEmail").value.trim();
+  const msg = $("kitMsg");
+  if(!validEmail(email)){ msg.className="kit-msg err"; msg.textContent="Please enter a valid email address."; return; }
+
+  const btn = $("kitSubmit");
+  btn.disabled = true; btn.textContent = "Sending…"; msg.className="kit-msg"; msg.textContent="";
+
+  // The ENTIRE payload — only the email + the one checkbox. Nothing else.
+  const payload = {
+    access_key: WEB3FORMS_KEY,
+    subject: "AI Confidentiality Kit request",
+    from_name: "Privilege Shield",
+    email: email,
+    firm_wide_interest: $("kitFirm").checked ? "yes" : "no"
+  };
+
+  try{
+    const res = await fetch(EMAIL_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if(!res.ok) throw new Error("HTTP "+res.status);
+    // success → replace the form with an inline confirmation + instant-access link
+    $("kitForm").innerHTML =
+      '<div class="kit-success"><strong>Check your inbox — your kit is on the way.</strong>'+
+      '<p>Want it right now? <a href="'+KIT_LINK+'" target="_blank" rel="noopener">Open the AI Confidentiality Kit →</a></p></div>';
+  }catch(err){
+    btn.disabled=false; btn.textContent="Send it to me";
+    msg.className="kit-msg err";
+    msg.innerHTML='Something went wrong — email me at <a href="mailto:'+CONTACT_EMAIL+'">'+CONTACT_EMAIL+'</a> and I’ll send it over.';
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   WIRE-UP
+   --------------------------------------------------------------------------- */
+function buildTypeOptions(){
+  // detection toggles
+  const optBox = $("typeOpts");
+  TOGGLEABLE.forEach(t=>{
+    const id="opt_"+t;
+    const lab=document.createElement("label");
+    lab.innerHTML='<input type="checkbox" data-opt="'+t+'" id="'+id+'" '+(t==="money"?"":"checked")+(t==="money"?"":"")+'> '+TYPES[t].label;
+    optBox.appendChild(lab);
+  });
+  // default money ON too (over-flag); flip the attribute set above:
+  const moneyCb=document.querySelector('input[data-opt="money"]'); if(moneyCb) moneyCb.checked=true;
+
+  // manual add type dropdown
+  const sel=$("addType");
+  ["name","ssn","email","phone","address","zip","date","account","case","money","other"].forEach(t=>{
+    const o=document.createElement("option"); o.value=t; o.textContent=TYPES[t].label; sel.appendChild(o);
+  });
+  sel.value="other";
+}
+
+function netStatus(){
+  const on = navigator.onLine;
+  $("netlabel").textContent = on ? "Online — your documents are never sent" : "Offline — working normally";
+}
+
+window.addEventListener("DOMContentLoaded", ()=>{
+  buildTypeOptions();
+  netStatus();
+  window.addEventListener("online", netStatus);
+  window.addEventListener("offline", netStatus);
+
+  $("detectBtn").addEventListener("click", runDetect);
+  $("exampleBtn").addEventListener("click", ()=>{ $("rawInput").value=EXAMPLE; runDetect(); });
+  $("clearAllBtn").addEventListener("click", clearAll);
+  $("addSelBtn").addEventListener("click", addSelection);
+  $("redactBtn").addEventListener("click", runRedact);
+  $("copyOutBtn").addEventListener("click", ()=>copyFrom("redactedOut"));
+  $("downloadKeyBtn").addEventListener("click", downloadKey);
+  $("restoreBtn").addEventListener("click", runRestore);
+  $("copyRestoredBtn").addEventListener("click", ()=>copyFrom("restoredOut"));
+
+  // toggle by clicking a highlight
+  $("preview").addEventListener("click", e=>{
+    const m = e.target.closest("mark.pii"); if(m) toggleItem(m.dataset.item);
+  });
+  // toggle by checkbox in the items list
+  $("itemsList").addEventListener("change", e=>{
+    if(e.target.matches('input[type="checkbox"]')) toggleItem(e.target.dataset.item);
+  });
+
+  // optional email form — the only place a network request can originate
+  $("kitForm").addEventListener("submit", submitKit);
+});
+</script>
+</body>
+</html>
