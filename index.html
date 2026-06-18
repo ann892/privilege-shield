@@ -744,6 +744,19 @@ const EMAIL_ENDPOINT = "https://formsubmit.co/ajax/a7de5074bda306a14c6b56a4e38f4
 const KIT_LINK       = "https://helloparalegal.com/ai-confidentiality-kit"; // <-- set to the live kit URL
 const CONTACT_EMAIL  = "hello@helloparalegal.com";    // shown only if the request fails
 
+/* Auto-reply emailed to each person the moment they sign up (FormSubmit
+   _autoresponse). Built from KIT_LINK so the kit URL lives in ONE place — set
+   KIT_LINK above and both the on-page success button and this email update. */
+const AUTORESPONSE =
+  "Thanks for grabbing the AI Confidentiality Kit.\n\n"+
+  "Here it is — the exact prompt and checklist I use so AI never touches a client's identity:\n"+
+  KIT_LINK + "\n\n"+
+  "It pairs perfectly with Privilege Shield (the free tool you just used) — redact locally, "+
+  "then use the prompt so client identities never reach an AI in the first place.\n\n"+
+  "Keep your clients out of the room,\n"+
+  "Hello Paralegal\n"+
+  "helloparalegal.com";
+
 function validEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
 
 async function submitKit(ev){
@@ -761,6 +774,7 @@ async function submitKit(ev){
     email: email,
     firm_wide_interest: $("kitFirm").checked ? "yes" : "no",
     _subject: "New AI Confidentiality Kit request — Privilege Shield",
+    _autoresponse: AUTORESPONSE,   // auto-emails the kit link back to the signer
     _template: "table",
     _captcha: "false"
   };
