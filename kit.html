@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<!--
+  THE AI CONFIDENTIALITY KIT — Hello Paralegal
+  A single, self-contained page (no network, no dependencies). Hosted alongside
+  Privilege Shield so it has a real URL. Edit the content freely — it's yours.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The AI Confidentiality Kit — Hello Paralegal</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%234f7cff' d='M12 2l8 3v6c0 5-3.4 8.6-8 11-4.6-2.4-8-6-8-11V5z'/%3E%3C/svg%3E">
+<style>
+  :root{--ink:#0f1733;--ink2:#5a6488;--ink3:#8b93b0;--line:#e6e9f3;--bg:#f6f7fb;
+    --brand:#4f7cff;--brand-d:#3b63e0;--brand-soft:#eef3ff;--safe:#10b981;--shadow:0 1px 2px rgba(16,24,48,.05),0 10px 30px rgba(16,24,48,.07)}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);line-height:1.6;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:760px;margin:0 auto;padding:0 22px}
+  a{color:var(--brand-d)}
+  header{background:linear-gradient(125deg,#16263f,#274a86);color:#fff;padding:40px 0 34px}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:700;margin-bottom:18px}
+  .brand .m{width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,#5b86ff,#3b63e0);display:grid;place-items:center}
+  .brand .m svg{width:18px;height:18px}
+  .brand small{font-weight:500;color:#aebbe0;font-size:12.5px;display:block;line-height:1.1}
+  header h1{margin:6px 0 8px;font-size:30px;letter-spacing:-.6px;line-height:1.12}
+  header p{margin:0;color:#d3dcf0;font-size:15.5px;max-width:560px}
+  .tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+    background:rgba(255,255,255,.14);color:#dfe7ff;border-radius:999px;padding:4px 11px;margin-bottom:6px}
+  main{padding:30px 0 10px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:24px;margin:0 0 22px}
+  h2{font-size:20px;letter-spacing:-.3px;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+  h2 .n{width:28px;height:28px;border-radius:8px;background:var(--brand-soft);color:var(--brand-d);
+    display:grid;place-items:center;font-size:14px;font-weight:800;flex:0 0 auto}
+  .lead{color:var(--ink2);font-size:14.5px;margin:0 0 16px}
+  pre{position:relative;background:#0e1730;color:#e7ecfb;border-radius:12px;padding:18px 16px;overflow:auto;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;white-space:pre-wrap;margin:0}
+  .copy{position:absolute;top:10px;right:10px;background:#2a3a63;color:#fff;border:0;border-radius:8px;
+    font-size:12px;font-weight:600;padding:6px 11px;cursor:pointer}
+  .copy:hover{background:#37497a}
+  ul.check{list-style:none;padding:0;margin:6px 0 0}
+  ul.check li{position:relative;padding:9px 0 9px 34px;border-bottom:1px solid #f0f2f7;font-size:14.5px}
+  ul.check li:last-child{border-bottom:0}
+  ul.check li::before{content:"";position:absolute;left:0;top:11px;width:20px;height:20px;border-radius:6px;
+    background:var(--safe);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3'%3E%3Cpath d='M5 12l5 5 9-10'/%3E%3C/svg%3E");
+    background-size:14px;background-repeat:no-repeat;background-position:center}
+  ul.check li b{color:var(--ink)}
+  .tip{background:var(--brand-soft);border:1px solid #d8e3ff;border-radius:12px;padding:13px 15px;font-size:13.5px;color:#2a3f73;margin-top:14px}
+  .cta{background:linear-gradient(135deg,#16263f,#274a86);color:#fff;border-radius:16px;padding:24px;text-align:center;margin:6px 0 26px}
+  .cta h3{margin:0 0 6px;font-size:19px}
+  .cta p{margin:0 0 14px;color:#cdd8ec;font-size:14px}
+  .cta a{display:inline-block;background:#fff;color:#16263f;font-weight:700;text-decoration:none;padding:11px 18px;border-radius:10px;margin:4px}
+  .cta a.ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4)}
+  footer{color:var(--ink3);font-size:12.5px;text-align:center;padding:18px 0 50px}
+  footer b{color:var(--ink2)}
+  @media print{.copy,.cta{display:none}body{background:#fff}.card{box-shadow:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="brand"><span class="m"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 3l7 3v5c0 4.6-3 8.3-7 10-4-1.7-7-5.4-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg></span>
+      <span>Hello Paralegal<small>Privilege Shield</small></span></div>
+    <span class="tag">Free kit</span>
+    <h1>The AI Confidentiality Kit</h1>
+    <p>The exact prompt and checklist for using AI on client matters — so a client's identity
+       never reaches the model in the first place.</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="card">
+    <h2><span class="n">1</span> The AI Confidentiality Prompt</h2>
+    <p class="lead">Paste this at the top of any chat before you share matter facts. It tells the AI to
+      work only with placeholders and never ask for or infer real identities.</p>
+    <pre id="prompt">You are assisting a lawyer who must protect client confidentiality and privilege.
+
+Ground rules for this entire conversation:
+1. I will give you facts with identities already replaced by placeholders such as
+   [CLIENT_1], [PARTY_2], [ACCOUNT_1], [DATE_1]. Treat each placeholder as a stable,
+   opaque token.
+2. Never ask me to reveal a real name, address, account number, SSN, date of birth,
+   or any other identifier. If a real identity would help, ask me to add a new
+   placeholder instead.
+3. Do not guess, infer, or "fill in" who a placeholder might refer to. Do not invent
+   identifying details.
+4. Keep every placeholder exactly as written in your output so I can map it back
+   locally. Do not rename, merge, or renumber them.
+5. If I accidentally paste a real identifier, flag it and ask me to replace it with a
+   placeholder before you continue.
+
+Confirm you understand, then wait for the matter facts.</pre>
+    <div class="tip"><b>Pair it with Privilege Shield.</b> Redact your text locally first, paste the
+      safe version here, then restore the real names in the AI's reply — all in your browser.</div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">2</span> The AI Confidentiality Checklist</h2>
+    <p class="lead">Run this before, during, and after any AI session that touches a client matter.</p>
+    <ul class="check">
+      <li><b>Redact before you paste.</b> Replace every name, address, account/SSN, case number, and date with a placeholder — locally, before the text leaves your machine.</li>
+      <li><b>Strip indirect identifiers too.</b> A unique fact pattern can identify a client even with names removed. Generalize specifics that aren't needed for the analysis.</li>
+      <li><b>Lead with the prompt above</b> so the model commits to placeholder-only handling.</li>
+      <li><b>Check the AI's vendor terms.</b> Confirm your inputs aren't used for training or retained beyond your control; use a no-training / business tier where required.</li>
+      <li><b>Confirm client consent &amp; engagement terms</b> permit using AI tools on the matter.</li>
+      <li><b>Review every output</b> before relying on it — automated redaction over-flags and can also miss; you remain responsible.</li>
+      <li><b>Restore locally, not in the cloud.</b> Map placeholders back to real values on your own device, never by sending the key to a third party.</li>
+    </ul>
+    <div class="tip">This kit is practical guidance, <b>not legal advice</b>. You remain responsible for
+      protecting client confidentiality under your jurisdiction's rules (e.g., ABA Model Rule 1.6).</div>
+  </div>
+
+  <div class="cta">
+    <h3>Want this built into your whole practice?</h3>
+    <p>Hello Paralegal automates redaction across every intake and matter — so client data never touches AI unprotected.</p>
+    <a href="https://calendly.com/helloparalegal/30min" target="_blank" rel="noopener">Book a 30-min call →</a>
+    <a class="ghost" href="https://ann892.github.io/privilege-shield/" target="_blank" rel="noopener">Open Privilege Shield</a>
+  </div>
+
+</main>
+
+<footer class="wrap">
+  Built by <b>Hello Paralegal</b> — helloparalegal.com · Print this page or save it as PDF to keep the kit handy.
+</footer>
+
+<script>
+  // tiny local-only copy button (no network)
+  document.querySelectorAll('pre').forEach(pre=>{
+    const b=document.createElement('button'); b.className='copy'; b.textContent='Copy';
+    b.onclick=async()=>{ try{ await navigator.clipboard.writeText(pre.textContent); }catch(e){
+      const r=document.createRange(); r.selectNode(pre); getSelection().removeAllRanges(); getSelection().addRange(r); document.execCommand('copy'); getSelection().removeAllRanges(); }
+      b.textContent='Copied'; setTimeout(()=>b.textContent='Copy',1500); };
+    pre.appendChild(b);
+  });
+</script>
+</body>
+</html>

@@ -741,7 +741,7 @@ const EXAMPLE =
                        to your real kit URL when the page is live.
      CONTACT_EMAIL   : fallback address shown only if a submission errors.          */
 const EMAIL_ENDPOINT = "https://formsubmit.co/ajax/a7de5074bda306a14c6b56a4e38f4e32";
-const KIT_LINK       = "https://helloparalegal.com/ai-confidentiality-kit"; // <-- set to the live kit URL
+const KIT_LINK       = "https://ann892.github.io/privilege-shield/kit.html"; // hosted kit (edit kit.html or point elsewhere)
 const CONTACT_EMAIL  = "hello@helloparalegal.com";    // shown only if the request fails
 
 /* Auto-reply emailed to each person the moment they sign up (FormSubmit
@@ -786,10 +786,11 @@ async function submitKit(ev){
       body: JSON.stringify(payload)
     });
     if(!res.ok) throw new Error("HTTP "+res.status);
-    // success → replace the form with an inline confirmation + instant-access link
+    // success → deliver the kit instantly on-page (guaranteed), email is a bonus copy
     $("kitForm").innerHTML =
-      '<div class="kit-success"><strong>Check your inbox — your kit is on the way.</strong>'+
-      '<p>Want it right now? <a href="'+KIT_LINK+'" target="_blank" rel="noopener">Open the AI Confidentiality Kit →</a></p></div>';
+      '<div class="kit-success"><strong>You’re in — here’s your AI Confidentiality Kit.</strong>'+
+      '<p><a href="'+KIT_LINK+'" target="_blank" rel="noopener">Open the Kit →</a>'+
+      ' &nbsp;·&nbsp; we’ve emailed you a copy too.</p></div>';
   }catch(err){
     btn.disabled=false; btn.textContent="Send it to me";
     msg.className="kit-msg err";
